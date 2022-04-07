@@ -5,7 +5,7 @@ from torchvision import models
 import collections
 
 
-class CSRNet(nn.Module):
+class CSRNetFG(nn.Module):
     def __init__(self, load_weights=False):
         super(CSRNet, self).__init__()
         self.frontend_feat = [64, 64, 'M', 128, 128,
@@ -14,7 +14,11 @@ class CSRNet(nn.Module):
         self.frontend = make_layers(self.frontend_feat)
         self.backend = make_layers(
             self.backend_feat, in_channels=512, dilation=True)
+        self.backend_seg = make_layers(
+            self.backend_feat, in_channels=512, dilation=True)
         self.output_layer = nn.Conv2d(64, 1, kernel_size=1)
+        self.output_layer_seg = nn.Conv2d(64, 7, kernel_size=1) # 6 classes + bg
+        
         if not load_weights:
             mod = models.vgg16(pretrained=True)
             self._initialize_weights()
@@ -26,11 +30,17 @@ class CSRNet(nn.Module):
             self.frontend.load_state_dict(fsd)
 
     def forward(self, x):
-        x = self.frontend(x)
-        x = self.backend(x)
-        x = self.output_layer(x)
-        x = nn.functional.interpolate(x, scale_factor=8)
-        return x
+        feats = self.frontend(x)
+        
+        dens = self.backend(feats)
+        seg = self.backend_seg(feats)
+        
+        dens = self.output_layer(dens)
+        seg = self.output_layer_seg(seg)
+        
+        dens = nn.functional.interpolate(dens, scale_factor=8)
+        seg = nn.functional.interpolate(seg, scale_factor=8)
+        return dens, seg
 
     def _initialize_weights(self):
         for m in self.modules():

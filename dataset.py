@@ -9,11 +9,13 @@ import random
 from PIL import Image
 from torchvision.transforms import Compose, ToTensor, Normalize
 import torchvision.transforms.functional as F
+import h5py
 
+GT_LOC = 'ground-truth-multiclass-hard'
 
-class CrowdDataset(torch.utils.data.Dataset):
+class FGCrowdDataset(torch.utils.data.Dataset):
     '''
-    CrowdDataset
+    Fine grained CrowdDataset
     '''
 
     def __init__(self, root, phase, main_transform=None, img_transform=None, dmap_transform=None):
@@ -24,8 +26,8 @@ class CrowdDataset(torch.utils.data.Dataset):
         img_transform: transforms on image.
         dmap_transform: transforms on densitymap.
         '''
-        self.img_path = os.path.join(root, phase+'_data/images')
-        self.dmap_path = os.path.join(root, phase+'_data/densitymaps')
+        self.img_path = os.path.join(root, phase+'/images')
+        self.dmap_path = os.path.join(root, phase+'/ground-truth')#'/densitymaps')
         self.data_files = [filename for filename in os.listdir(self.img_path)
                            if os.path.isfile(os.path.join(self.img_path, filename))]
         self.main_transform = main_transform
@@ -38,26 +40,43 @@ class CrowdDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         index = index % len(self.data_files)
         fname = self.data_files[index]
-        img, dmap = self.read_image_and_dmap(fname)
+        img, dmap, classmaps = self.read_image_and_dmap(fname)
+        
+        # TODO transform class maps as well
         if self.main_transform is not None:
             img, dmap = self.main_transform((img, dmap))
         if self.img_transform is not None:
             img = self.img_transform(img)
         if self.dmap_transform is not None:
             dmap = self.dmap_transform(dmap)
-        return {'image': img, 'densitymap': dmap}
+            
+        return {'image': img, 'densitymap': dmap, 'classmaps': classmaps}
 
     def read_image_and_dmap(self, fname):
-        img = Image.open(os.path.join(self.img_path, fname))
+        img_path = os.path.join(self.img_path, fname)
+        img = Image.open(img_path)
         if img.mode == 'L':
             print('There is a grayscale image.')
             img = img.convert('RGB')
 
-        dmap = np.load(os.path.join(
-            self.dmap_path, os.path.splitext(fname)[0] + '.npy'))
-        dmap = dmap.astype(np.float32, copy=False)
+        gt_path = img_path.replace('.JPG','.h5').replace('images',GT_LOC)
+        gt_file = h5py.File(gt_path)
+        target = np.asarray(gt_file['density'])
+        
+        # create classwise dmaps
+        overall = np.sum(target[:3], axis=0)
+        # print("overall shape", overall.shape)
+        # species = target[0:3]
+        # sex = target[3:6]
+        # age = target[6:]
+        # print(species.shape, sex.shape, age.shape)
+        
+        dmap = overall.astype(np.float32, copy=False)
         dmap = Image.fromarray(dmap)
-        return img, dmap
+        # print(dmap)
+        
+        # class_maps = [Image.fromarray(m.astype(np.float32, copy=False).transpose((2,0,1))) for m in [species, sex, age]]
+        return img, dmap, target
 
 def create_train_dataloader(root, use_flip, batch_size):
     '''
@@ -69,11 +88,11 @@ def create_train_dataloader(root, use_flip, batch_size):
     main_trans_list = []
     if use_flip:
         main_trans_list.append(RandomHorizontalFlip())
-    main_trans_list.append(PairedCrop())
+    main_trans_list.append(PairedCrop(small_crop=batch_size>1))
     main_trans = Compose(main_trans_list)
     img_trans = Compose([ToTensor(), Normalize(mean=[0.5,0.5,0.5],std=[0.225,0.225,0.225])])
     dmap_trans = ToTensor()
-    dataset = CrowdDataset(root=root, phase='train', main_transform=main_trans, 
+    dataset = FGCrowdDataset(root=root, phase='train', main_transform=main_trans, 
                     img_transform=img_trans,dmap_transform=dmap_trans)
     dataloader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,shuffle=True)
     return dataloader
@@ -88,7 +107,7 @@ def create_test_dataloader(root):
     main_trans = Compose(main_trans_list)
     img_trans = Compose([ToTensor(), Normalize(mean=[0.5,0.5,0.5],std=[0.225,0.225,0.225])])
     dmap_trans = ToTensor()
-    dataset = CrowdDataset(root=root, phase='test', main_transform=main_trans, 
+    dataset = FGCrowdDataset(root=root, phase='val', main_transform=main_trans, 
                     img_transform=img_trans,dmap_transform=dmap_trans)
     dataloader = torch.utils.data.DataLoader(dataset,batch_size=1,shuffle=False)
     return dataloader
@@ -118,12 +137,17 @@ class PairedCrop(object):
     Note that due to the maxpooling in the nerual network, 
     we must promise that the size of input image is the corresponding factor.
     '''
-    def __init__(self, factor=16):
+    def __init__(self, factor=16, small_crop=False):
         self.factor = factor
+        self.small_crop = small_crop
 
     @staticmethod
-    def get_params(img, factor):
-        w, h = img.size
+    def get_params(img, factor, small_crop=False):
+        # for batch sizes > 1 where all image sizes must be equal
+        if small_crop:
+            w, h = (924, 668)
+        else:
+            w, h = img.size
         if w % factor == 0 and h % factor == 0:
             return 0, 0, h, w
         else:
@@ -136,7 +160,7 @@ class PairedCrop(object):
         '''
         img, dmap = img_and_dmap
         
-        i, j, th, tw = self.get_params(img, self.factor)
+        i, j, th, tw = self.get_params(img, self.factor, self.small_crop)
 
         img = F.crop(img, i, j, th, tw)
         dmap = F.crop(dmap, i, j, th, tw)
