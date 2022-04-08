@@ -19,6 +19,8 @@ def masked_multi_soft_cross_entropy(output, target, masks, cls_weight=None, pixe
     Output: B x 7 x h x w
     Target: B x 7 x h x w
     Masks:  B x 3 x h x w
+    
+    TODO: scale loss for bg channel so it's not counted three times
     """
     loss = 0
     # for each attribute (species, sex, age)
@@ -117,8 +119,8 @@ if __name__=="__main__":
             # print(dens_loss, seg_loss, cls_dens_loss)
             
             # TESTING
-            # if j > 20:
-            #     break
+            if j > 20:
+                break
         cfg.writer.add_scalar('Train_Loss', epoch_loss/len(train_dataloader), epoch)
 
         model.eval()
@@ -139,12 +141,14 @@ if __name__=="__main__":
                 
                 # fine-grained multiclass MAE
                 target = data['classmaps'].to(cfg.device)
-                smap_masks = torch.index_select(target, 1, torch.tensor([2,5,8]).to(cfg.device)) < BG_THRESH
+                smap_masks = torch.index_select(target, 1, torch.tensor([2,2,5,5,8,8]).to(cfg.device)) < BG_THRESH
                 et_cls_densities = et_densitymap.repeat(1,6,1,1) * et_smap[:,:6,:,:]
                 gt_cls_densities = torch.index_select(target, 1, torch.tensor([0,1,3,4,6,7]).to(cfg.device))
+                # known_mask_i = masks[:,i,:,:].unsqueeze(1).repeat(1,3,1,1)
                 fg_maes = np.array([
-                    abs(et_cls_densities[:,i,:,:].data.sum() - gt_cls_densities[:,i,:,:].data.sum()).item() for i in range(6)
+                    abs(et_cls_densities[:,i,:,:][smap_masks[:,i,:,:]].data.sum() - gt_cls_densities[:,i,:,:][smap_masks[:,i,:,:]].data.sum()).item() for i in range(6)
                 ])
+                print(fg_maes)
                 fg_overall_mae = sum(fg_maes) / len(fg_maes)
                 
                 epoch_cls_maes += fg_maes
@@ -154,8 +158,8 @@ if __name__=="__main__":
                 # print("class agnostic mae", mae, "fg overall mae", fg_overall_mae)
                 
                 # TESTING
-                # if i > 20:
-                #     break
+                if i > 20:
+                    break
                 
             epoch_mae /= len(test_dataloader)
             epoch_cls_maes /= len(test_dataloader)
