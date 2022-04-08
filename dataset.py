@@ -27,7 +27,7 @@ class FGCrowdDataset(torch.utils.data.Dataset):
         dmap_transform: transforms on densitymap.
         '''
         self.img_path = os.path.join(root, phase+'/images')
-        self.dmap_path = os.path.join(root, phase+'/ground-truth')#'/densitymaps')
+        self.dmap_path = os.path.join(root, phase+'/ground-truth-multiclass-hard')
         self.data_files = [filename for filename in os.listdir(self.img_path)
                            if os.path.isfile(os.path.join(self.img_path, filename))]
         self.main_transform = main_transform
@@ -44,11 +44,12 @@ class FGCrowdDataset(torch.utils.data.Dataset):
         
         # TODO transform class maps as well
         if self.main_transform is not None:
-            img, dmap = self.main_transform((img, dmap))
+            img, dmap, classmaps = self.main_transform((img, dmap, classmaps))
         if self.img_transform is not None:
             img = self.img_transform(img)
         if self.dmap_transform is not None:
             dmap = self.dmap_transform(dmap)
+            # classmaps = self.dmap_transform(classmaps)
             
         return {'image': img, 'densitymap': dmap, 'classmaps': classmaps}
 
@@ -73,9 +74,7 @@ class FGCrowdDataset(torch.utils.data.Dataset):
         
         dmap = overall.astype(np.float32, copy=False)
         dmap = Image.fromarray(dmap)
-        # print(dmap)
         
-        # class_maps = [Image.fromarray(m.astype(np.float32, copy=False).transpose((2,0,1))) for m in [species, sex, age]]
         return img, dmap, target
 
 def create_train_dataloader(root, use_flip, batch_size):
@@ -87,7 +86,9 @@ def create_train_dataloader(root, use_flip, batch_size):
     '''
     main_trans_list = []
     if use_flip:
+        print("Warning: flip not working yet?")
         main_trans_list.append(RandomHorizontalFlip())
+      
     main_trans_list.append(PairedCrop(small_crop=batch_size>1))
     main_trans = Compose(main_trans_list)
     img_trans = Compose([ToTensor(), Normalize(mean=[0.5,0.5,0.5],std=[0.225,0.225,0.225])])
@@ -120,16 +121,16 @@ class RandomHorizontalFlip(object):
     Random horizontal flip.
     prob = 0.5
     '''
-    def __call__(self, img_and_dmap):
+    def __call__(self, img_and_dmap_and_classmap):
         '''
         img: PIL.Image
         dmap: PIL.Image
         '''
-        img, dmap = img_and_dmap
+        img, dmap, classmap = img_and_dmap_and_classmap
         if random.random() < 0.5:
-            return (img.transpose(Image.FLIP_LEFT_RIGHT), dmap.transpose(Image.FLIP_LEFT_RIGHT))
+            return (img.transpose(Image.FLIP_LEFT_RIGHT), dmap.transpose(Image.FLIP_LEFT_RIGHT), classmap.transpose(Image.FLIP_LEFT_RIGHT))
         else:
-            return (img, dmap)
+            return (img, dmap, classmap)
 
 class PairedCrop(object):
     '''
@@ -153,18 +154,20 @@ class PairedCrop(object):
         else:
             return 0, 0, h - (h % factor), w - (w % factor)
 
-    def __call__(self, img_and_dmap):
+    def __call__(self, img_and_dmap_and_classmap):
         '''
         img: PIL.Image
         dmap: PIL.Image
+        classmap: np.ndarray
         '''
-        img, dmap = img_and_dmap
+        img, dmap, classmap = img_and_dmap_and_classmap
         
         i, j, th, tw = self.get_params(img, self.factor, self.small_crop)
 
         img = F.crop(img, i, j, th, tw)
         dmap = F.crop(dmap, i, j, th, tw)
-        return (img, dmap)
+        classmap = classmap[:,i:th,j:tw] #F.crop(classmap, i, j, th, tw)
+        return (img, dmap, classmap)
 
 
 # testing code
