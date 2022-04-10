@@ -13,7 +13,7 @@ from model import CSRNetFG_multitask, CSRNetFG_naive
 from dataset import create_train_dataloader,create_test_dataloader
 from utils import denormalize
 
-BG_THRESH = 0.0001 # changed from .00001
+BG_THRESH = .00001
 
 def masked_multi_soft_cross_entropy(output, target, masks):
     """
@@ -79,8 +79,7 @@ if __name__ == "__main__":
     mse = nn.MSELoss(size_average=False)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     
-    # TODO get flip to work
-    train_dataloader = create_train_dataloader(cfg.dataset_root, use_flip=False, batch_size=cfg.batch_size)
+    train_dataloader = create_train_dataloader(cfg.dataset_root, use_flip=True, batch_size=cfg.batch_size)
     test_dataloader  = create_test_dataloader(cfg.dataset_root)
 
     # track both MAE and fg_MAE for saving checkpoints
@@ -126,7 +125,8 @@ if __name__ == "__main__":
             if args.model == 'multitask':
                 dens_loss = mse(et_densitymap, gt_densitymap)
             elif args.model == 'naive':
-                # could potentially add an overall counting loss here, summing each attribute
+                # sum classes for each attribute should = overall count
+                # make loss = average between the three
                 for i in range(3):
                     output_i = torch.index_select(gt_cls_densities, 1, torch.tensor([i*2, i*2+1]).to(target.device))
                     dens_loss += mse(torch.sum(gt_cls_densities, dim=1).unsqueeze(1), gt_densitymap)

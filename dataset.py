@@ -77,7 +77,7 @@ class FGCrowdDataset(torch.utils.data.Dataset):
         
         return img, dmap, target
 
-def create_train_dataloader(root, use_flip, batch_size):
+def create_train_dataloader(root, use_flip, batch_size, shuffle=True):
     '''
     Create train dataloader.
     root: the dataset root.
@@ -86,7 +86,6 @@ def create_train_dataloader(root, use_flip, batch_size):
     '''
     main_trans_list = []
     if use_flip:
-        print("Warning: flip not working yet?")
         main_trans_list.append(RandomHorizontalFlip())
       
     main_trans_list.append(PairedCrop(small_crop=batch_size>1))
@@ -95,7 +94,7 @@ def create_train_dataloader(root, use_flip, batch_size):
     dmap_trans = ToTensor()
     dataset = FGCrowdDataset(root=root, phase='train', main_transform=main_trans, 
                     img_transform=img_trans,dmap_transform=dmap_trans)
-    dataloader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,shuffle=True,num_workers=1)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=1)
     return dataloader
 
 def create_test_dataloader(root):
@@ -125,10 +124,11 @@ class RandomHorizontalFlip(object):
         '''
         img: PIL.Image
         dmap: PIL.Image
+        classmap: np.ndarray
         '''
         img, dmap, classmap = img_and_dmap_and_classmap
         if random.random() < 0.5:
-            return (img.transpose(Image.FLIP_LEFT_RIGHT), dmap.transpose(Image.FLIP_LEFT_RIGHT), classmap.transpose(Image.FLIP_LEFT_RIGHT))
+            return (img.transpose(Image.FLIP_LEFT_RIGHT), dmap.transpose(Image.FLIP_LEFT_RIGHT), np.flip(classmap, axis=-1).copy())
         else:
             return (img, dmap, classmap)
 
