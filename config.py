@@ -2,6 +2,8 @@ import torch
 import os
 from tensorboardX import SummaryWriter
 
+# BATCH_SIZE = 8 # V100 16gb
+BATCH_SIZE = 16 # A100 80gb
 
 class Config():
     '''
@@ -10,11 +12,11 @@ class Config():
     def __init__(self):
         self.dataset_root = '../sealwatch_data'
         self.device       = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.lr           = 1e-5                # learning rate
-        self.batch_size   = 8                   # batch size
-        self.epochs       = 2000                # epochs
-        self.checkpoints  = './checkpoints'     # checkpoints dir
-        self.writer       = SummaryWriter()     # tensorboard writer
+        self.lr           = BATCH_SIZE*1e-5
+        self.batch_size   = BATCH_SIZE
+        self.epochs       = 2000
+        self.checkpoints  = './checkpoints'
+        self.writer       = SummaryWriter()
 
         self.__mkdir(self.checkpoints)
 

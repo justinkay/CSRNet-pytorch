@@ -95,7 +95,7 @@ def create_train_dataloader(root, use_flip, batch_size):
     dmap_trans = ToTensor()
     dataset = FGCrowdDataset(root=root, phase='train', main_transform=main_trans, 
                     img_transform=img_trans,dmap_transform=dmap_trans)
-    dataloader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,shuffle=True,num_workers=1)
     return dataloader
 
 def create_test_dataloader(root):
